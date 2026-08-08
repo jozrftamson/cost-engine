@@ -1,0 +1,110 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: cost-engine-postgres
+    environment:
+      POSTGRES_DB: cost_engine
+      POSTGRES_USER: cost_engine
+      POSTGRES_PASSWORD: cost_engine_dev_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cost_engine"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis (Optional - for caching and queues)
+  redis:
+    image: redis:7-alpine
+    container_name: cost-engine-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Cost Engine API
+  api:
+    build:
+      context: .
+      dockerfile: ./infrastructure/docker/Dockerfile.api
+    container_name: cost-engine-api
+    environment:
+      DATABASE_URL: postgresql://cost_engine:cost_engine_dev_password@postgres:5432/cost_engine
+      REDIS_URL: redis://redis:6379
+      NODE_ENV: development
+      PORT: 3000
+      LOG_LEVEL: debug
+      LOG_PRETTY: "true"
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./apps/api:/app/apps/api
+      - ./packages:/app/packages
+      - /app/node_modules
+      - /app/apps/api/node_modules
+    command: npm run dev
+
+  # Cost Engine Worker (Background jobs)
+  worker:
+    build:
+      context: .
+      dockerfile: ./infrastructure/docker/Dockerfile.worker
+    container_name: cost-engine-worker
+    environment:
+      DATABASE_URL: postgresql://cost_engine:cost_engine_dev_password@postgres:5432/cost_engine
+      REDIS_URL: redis://redis:6379
+      NODE_ENV: development
+      LOG_LEVEL: debug
+      ENABLE_DAILY_AGGREGATION: "true"
+      ENABLE_MONTHLY_AGGREGATION: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./apps/worker:/app/apps/worker
+      - ./packages:/app/packages
+      - /app/node_modules
+      - /app/apps/worker/node_modules
+    command: npm run dev
+
+  # pgAdmin (Optional - for database management)
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: cost-engine-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@cost-engine.local
+      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    ports:
+      - "5050:80"
+    depends_on:
+      - postgres
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+
+volumes:
+  postgres_data:
+  redis_data:
+  pgadmin_data:
+
+networks:
+  default:
+    name: cost-engine-network
