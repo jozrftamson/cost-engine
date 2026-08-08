@@ -1,0 +1,51 @@
+name: 'AI Cost Tracking'
+description: 'Track AI and automation costs in your GitHub workflows'
+author: 'Cost Engine Team'
+
+branding:
+  icon: 'dollar-sign'
+  color: 'green'
+
+inputs:
+  api-url:
+    description: 'Cost Engine API URL'
+    required: true
+  api-key:
+    description: 'Cost Engine API Key'
+    required: true
+  project-id:
+    description: 'Project ID for cost attribution'
+    required: true
+  customer-id:
+    description: 'Customer ID (optional)'
+    required: false
+  workflow-id:
+    description: 'Workflow ID (optional)'
+    required: false
+  provider:
+    description: 'AI Provider (openai, anthropic, google, etc.)'
+    required: false
+  model:
+    description: 'AI Model name'
+    required: false
+  input-tokens:
+    description: 'Number of input tokens used'
+    required: false
+  output-tokens:
+    description: 'Number of output tokens used'
+    required: false
+  cached-tokens:
+    description: 'Number of cached tokens used'
+    required: false
+
+outputs:
+  total-cost:
+    description: 'Total cost calculated for this run'
+  cost-currency:
+    description: 'Currency of the cost (USD, EUR, etc.)'
+  event-id:
+    description: 'Cost event ID in the Cost Engine'
+
+runs:
+  using: 'node20'
+  main: 'dist/index.js'
