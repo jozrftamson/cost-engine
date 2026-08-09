@@ -1,0 +1,206 @@
+name: Debug Workflow with AI Cost Tracking
+
+on:
+  workflow_dispatch:
+    inputs:
+      debug_enabled:
+        description: 'Enable SSH debugging'
+        required: false
+        default: 'false'
+      ai_provider:
+        description: 'AI Provider to test'
+        required: false
+        default: 'openai'
+        type: choice
+        options:
+          - openai
+          - anthropic
+          - google
+
+jobs:
+  debug-and-track:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      # Debug: Print environment
+      - name: Debug - Environment Info
+        run: |
+          echo "::group::System Information"
+          echo "Runner OS: $RUNNER_OS"
+          echo "Runner Arch: $RUNNER_ARCH"
+          echo "Node Version: $(node --version)"
+          echo "NPM Version: $(npm --version)"
+          echo "::endgroup::"
+          
+          echo "::group::GitHub Context"
+          echo "Repository: ${{ github.repository }}"
+          echo "Workflow: ${{ github.workflow }}"
+          echo "Run ID: ${{ github.run_id }}"
+          echo "Run Number: ${{ github.run_number }}"
+          echo "Actor: ${{ github.actor }}"
+          echo "::endgroup::"
+      
+      # Debug: SSH Access (if enabled)
+      - name: Setup tmate session (SSH debugging)
+        if: ${{ github.event.inputs.debug_enabled == 'true' }}
+        uses: mxschmitt/action-tmate@v3
+        with:
+          limit-access-to-actor: true
+          timeout-minutes: 30
+      
+      # Simulate AI API Call with Token Tracking
+      - name: Simulate AI API Call
+        id: ai-call
+        run: |
+          echo "::group::AI API Simulation"
+          
+          # Simulate token usage based on provider
+          case "${{ github.event.inputs.ai_provider }}" in
+            openai)
+              INPUT_TOKENS=1500
+              OUTPUT_TOKENS=750
+              CACHED_TOKENS=200
+              MODEL="gpt-4"
+              ;;
+            anthropic)
+              INPUT_TOKENS=2000
+              OUTPUT_TOKENS=1000
+              CACHED_TOKENS=0
+              MODEL="claude-3-opus"
+              ;;
+            google)
+              INPUT_TOKENS=1800
+              OUTPUT_TOKENS=900
+              CACHED_TOKENS=150
+              MODEL="gemini-pro"
+              ;;
+          esac
+          
+          echo "Provider: ${{ github.event.inputs.ai_provider }}"
+          echo "Model: $MODEL"
+          echo "Input Tokens: $INPUT_TOKENS"
+          echo "Output Tokens: $OUTPUT_TOKENS"
+          echo "Cached Tokens: $CACHED_TOKENS"
+          
+          # Export for next steps
+          echo "input_tokens=$INPUT_TOKENS" >> $GITHUB_OUTPUT
+          echo "output_tokens=$OUTPUT_TOKENS" >> $GITHUB_OUTPUT
+          echo "cached_tokens=$CACHED_TOKENS" >> $GITHUB_OUTPUT
+          echo "model=$MODEL" >> $GITHUB_OUTPUT
+          echo "provider=${{ github.event.inputs.ai_provider }}" >> $GITHUB_OUTPUT
+          
+          echo "::endgroup::"
+      
+      # Calculate Cost (using inline calculation)
+      - name: Calculate AI Cost
+        id: calculate-cost
+        run: |
+          echo "::group::Cost Calculation"
+          
+          # Token prices per 1M tokens (in USD)
+          case "${{ steps.ai-call.outputs.provider }}" in
+            openai)
+              INPUT_PRICE=30.00  # GPT-4: $30/1M input tokens
+              OUTPUT_PRICE=60.00 # GPT-4: $60/1M output tokens
+              CACHED_PRICE=15.00 # GPT-4: $15/1M cached tokens
+              ;;
+            anthropic)
+              INPUT_PRICE=15.00  # Claude-3-Opus: $15/1M input tokens
+              OUTPUT_PRICE=75.00 # Claude-3-Opus: $75/1M output tokens
+              CACHED_PRICE=0.00  # No caching discount
+              ;;
+            google)
+              INPUT_PRICE=7.00   # Gemini-Pro: $7/1M input tokens
+              OUTPUT_PRICE=21.00 # Gemini-Pro: $21/1M output tokens
+              CACHED_PRICE=3.50  # Gemini-Pro: $3.50/1M cached tokens
+              ;;
+          esac
+          
+          # Calculate costs (using bc for floating point)
+          INPUT_COST=$(echo "scale=6; ${{ steps.ai-call.outputs.input_tokens }} * $INPUT_PRICE / 1000000" | bc)
+          OUTPUT_COST=$(echo "scale=6; ${{ steps.ai-call.outputs.output_tokens }} * $OUTPUT_PRICE / 1000000" | bc)
+          CACHED_COST=$(echo "scale=6; ${{ steps.ai-call.outputs.cached_tokens }} * $CACHED_PRICE / 1000000" | bc)
+          TOTAL_COST=$(echo "scale=6; $INPUT_COST + $OUTPUT_COST + $CACHED_COST" | bc)
+          
+          echo "Input Cost: \$$INPUT_COST"
+          echo "Output Cost: \$$OUTPUT_COST"
+          echo "Cached Cost: \$$CACHED_COST"
+          echo "Total Cost: \$$TOTAL_COST"
+          
+          # Calculate savings from caching
+          if [ "${{ steps.ai-call.outputs.cached_tokens }}" -gt 0 ]; then
+            UNCACHED_COST=$(echo "scale=6; ${{ steps.ai-call.outputs.cached_tokens }} * $INPUT_PRICE / 1000000" | bc)
+            SAVINGS=$(echo "scale=6; $UNCACHED_COST - $CACHED_COST" | bc)
+            SAVINGS_PERCENT=$(echo "scale=2; ($SAVINGS / $UNCACHED_COST) * 100" | bc)
+            echo "💰 Cache Savings: \$$SAVINGS (${SAVINGS_PERCENT}%)"
+          fi
+          
+          echo "total_cost=$TOTAL_COST" >> $GITHUB_OUTPUT
+          echo "::endgroup::"
+      
+      # Track Cost with Cost Engine API
+      - name: Track Cost in Cost Engine
+        if: false  # Enable when API is deployed
+        uses: jozrftamson/cost-engine-action@v1
+        with:
+          api-url: ${{ secrets.COST_ENGINE_URL }}
+          api-key: ${{ secrets.COST_ENGINE_API_KEY }}
+          project-id: ${{ vars.PROJECT_ID }}
+          provider: ${{ steps.ai-call.outputs.provider }}
+          model: ${{ steps.ai-call.outputs.model }}
+          input-tokens: ${{ steps.ai-call.outputs.input_tokens }}
+          output-tokens: ${{ steps.ai-call.outputs.output_tokens }}
+          cached-tokens: ${{ steps.ai-call.outputs.cached_tokens }}
+      
+      # Generate Cost Report
+      - name: Generate Cost Report
+        run: |
+          cat << 'EOF' >> $GITHUB_STEP_SUMMARY
+          # 💰 AI Cost Report
+          
+          ## Workflow Details
+          - **Repository:** ${{ github.repository }}
+          - **Workflow:** ${{ github.workflow }}
+          - **Run ID:** ${{ github.run_id }}
+          - **Triggered by:** ${{ github.actor }}
+          
+          ## AI Usage
+          - **Provider:** ${{ steps.ai-call.outputs.provider }}
+          - **Model:** ${{ steps.ai-call.outputs.model }}
+          - **Input Tokens:** ${{ steps.ai-call.outputs.input_tokens }}
+          - **Output Tokens:** ${{ steps.ai-call.outputs.output_tokens }}
+          - **Cached Tokens:** ${{ steps.ai-call.outputs.cached_tokens }}
+          - **Total Tokens:** $((${{ steps.ai-call.outputs.input_tokens }} + ${{ steps.ai-call.outputs.output_tokens }}))
+          
+          ## Cost Breakdown
+          - **Total Cost:** \$${{ steps.calculate-cost.outputs.total_cost }} USD
+          
+          ## Token Distribution
+          ```
+          Input:  ████████████████░░░░ ${{ steps.ai-call.outputs.input_tokens }} tokens
+          Output: ████████░░░░░░░░░░░░ ${{ steps.ai-call.outputs.output_tokens }} tokens
+          Cached: ██░░░░░░░░░░░░░░░░░░ ${{ steps.ai-call.outputs.cached_tokens }} tokens
+          ```
+          
+          ## Cost Optimization Tips
+          1. ✅ Use prompt caching to reduce costs by 50-90%
+          2. ✅ Optimize prompts to reduce token usage
+          3. ✅ Use cheaper models for simple tasks
+          4. ✅ Batch requests when possible
+          5. ✅ Monitor usage with Cost Engine
+          
+          EOF
+      
+      # Debug: Upload artifacts
+      - name: Upload Debug Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-logs
+          path: |
+            ${{ github.workspace }}/**/*.log
+            /tmp/*.log
+          retention-days: 7
